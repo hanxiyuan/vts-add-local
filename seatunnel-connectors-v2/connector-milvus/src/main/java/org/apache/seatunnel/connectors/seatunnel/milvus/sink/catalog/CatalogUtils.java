@@ -31,6 +31,7 @@ import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -50,7 +51,8 @@ public class CatalogUtils {
     }
 
     private Map<String, MilvusFieldSchema> parseFieldSchemaConfig() {
-        Map<String, MilvusFieldSchema> schemaMap = new java.util.HashMap<>();
+        // Keep insertion order from config field_schema.
+        Map<String, MilvusFieldSchema> schemaMap = new LinkedHashMap<>();
 
         if (config.get(FIELD_SCHEMA) != null && !config.get(FIELD_SCHEMA).isEmpty()) {
             Gson gson = new GsonBuilder().setObjectToNumberStrategy(ToNumberPolicy.LONG_OR_DOUBLE).create();

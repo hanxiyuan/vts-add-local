@@ -26,6 +26,7 @@ import org.apache.seatunnel.api.table.type.SeaTunnelRowType;
 import org.apache.seatunnel.api.table.type.SqlType;
 import org.apache.seatunnel.common.exception.CommonError;
 import org.apache.seatunnel.common.exception.CommonErrorCodeDeprecated;
+import org.apache.seatunnel.common.utils.BufferUtils;
 import org.apache.seatunnel.connectors.seatunnel.file.config.HadoopConf;
 import org.apache.seatunnel.connectors.seatunnel.file.exception.FileConnectorException;
 import org.apache.seatunnel.connectors.seatunnel.file.sink.config.FileSinkConfig;
@@ -63,6 +64,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.temporal.JulianFields;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.HashSet;
@@ -231,6 +233,33 @@ public class ParquetWriteStrategy extends AbstractWriteStrategy<ParquetWriter<Ge
             case DECIMAL:
             case DATE:
                 return data;
+            case FLOAT_VECTOR:
+                if (data instanceof ByteBuffer) {
+                    Float[] vector = BufferUtils.toFloatArray((ByteBuffer) data);
+                    return Arrays.asList(vector);
+                }
+                if (data instanceof Float[]) {
+                    return Arrays.asList((Float[]) data);
+                }
+                if (data instanceof Double[]) {
+                    Double[] doubles = (Double[]) data;
+                    Float[] floats = new Float[doubles.length];
+                    for (int i = 0; i < doubles.length; i++) {
+                        floats[i] = doubles[i].floatValue();
+                    }
+                    return Arrays.asList(floats);
+                }
+                return data;
+            case BINARY_VECTOR:
+            case FLOAT16_VECTOR:
+            case BFLOAT16_VECTOR:
+                if (data instanceof ByteBuffer) {
+                    return data;
+                }
+                if (data instanceof byte[]) {
+                    return ByteBuffer.wrap((byte[]) data);
+                }
+                return data;
             case TIMESTAMP:
                 if (writePathsAsInt96.contains(name)) {
                     LocalDateTime localDateTime = (LocalDateTime) data;
@@ -364,9 +393,28 @@ public class ParquetWriteStrategy extends AbstractWriteStrategy<ParquetWriter<Ge
                 return Types.primitive(
                                 PrimitiveType.PrimitiveTypeName.FLOAT, Type.Repetition.OPTIONAL)
                         .named(fieldName);
+            case FLOAT_VECTOR:
+                return Types.optionalGroup()
+                        .as(OriginalType.LIST)
+                        .addField(
+                                Types.repeatedGroup()
+                                        .addField(
+                                                Types.primitive(
+                                                                PrimitiveType.PrimitiveTypeName
+                                                                        .FLOAT,
+                                                                Type.Repetition.OPTIONAL)
+                                                        .named("array_element"))
+                                        .named("bag"))
+                        .named(fieldName);
             case DOUBLE:
                 return Types.primitive(
                                 PrimitiveType.PrimitiveTypeName.DOUBLE, Type.Repetition.OPTIONAL)
+                        .named(fieldName);
+            case BINARY_VECTOR:
+            case FLOAT16_VECTOR:
+            case BFLOAT16_VECTOR:
+                return Types.primitive(
+                                PrimitiveType.PrimitiveTypeName.BINARY, Type.Repetition.OPTIONAL)
                         .named(fieldName);
             case DECIMAL:
                 int precision = ((DecimalType) seaTunnelDataType).getPrecision();

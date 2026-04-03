@@ -1,0 +1,81 @@
+#
+# Build style aligned with ci/docker/Dockerfile in this repository.
+#
+
+FROM azul/zulu-openjdk:17 AS builder
+
+ARG MAVEN_DAEMON_VERSION=1.0.2
+
+RUN apt-get update && \
+    apt-get install -y curl unzip git && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN curl -L "https://github.com/apache/maven-mvnd/releases/download/${MAVEN_DAEMON_VERSION}/maven-mvnd-${MAVEN_DAEMON_VERSION}-linux-amd64.zip" -o mvnd.zip && \
+    unzip mvnd.zip && \
+    mv maven-mvnd-${MAVEN_DAEMON_VERSION}-linux-amd64 /opt/mvnd && \
+    rm mvnd.zip
+
+ENV PATH="/opt/mvnd/bin:${PATH}"
+WORKDIR /workspace
+COPY . .
+
+# Build dist + local file connector (in reactor).
+RUN mvnd clean install \
+    -T1 \
+    -pl :seatunnel-dist,seatunnel-connectors-v2/connector-file/connector-file-local \
+    -am \
+    -D"skip.ui"=true \
+    -Dmaven.test.skip=true \
+    --batch-mode \
+    --no-transfer-progress
+
+# Build oss file connector separately (not listed in connector-file reactor modules on this branch).
+RUN mvnd -f seatunnel-connectors-v2/connector-file/connector-file-oss/pom.xml clean package \
+    -T1 \
+    -D"skip.ui"=true \
+    -Dmaven.test.skip=true \
+    --batch-mode \
+    --no-transfer-progress
+
+FROM azul/zulu-openjdk:17
+
+ARG VERSION=2.3.11-SNAPSHOT
+
+ENV DOCKER=true
+ENV TZ=Asia/Shanghai
+ENV SEATUNNEL_HOME=/opt/seatunnel
+
+RUN apt-get update && \
+    apt-get install -y curl wget vim sudo && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /workspace/seatunnel-dist/target/apache-seatunnel-${VERSION}-bin*.tar.gz /opt/
+WORKDIR /opt
+
+RUN tar -xzvf apache-seatunnel-${VERSION}-bin*.tar.gz && \
+    mv apache-seatunnel-${VERSION} seatunnel && \
+    rm -f apache-seatunnel-${VERSION}-bin*.tar.gz && \
+    sed -i 's/#rootLogger.appenderRef.consoleStdout.ref/rootLogger.appenderRef.consoleStdout.ref/' seatunnel/config/log4j2.properties && \
+    sed -i 's/#rootLogger.appenderRef.consoleStderr.ref/rootLogger.appenderRef.consoleStderr.ref/' seatunnel/config/log4j2.properties && \
+    sed -i 's/rootLogger.appenderRef.file.ref/#rootLogger.appenderRef.file.ref/' seatunnel/config/log4j2.properties && \
+    cp seatunnel/config/hazelcast-master.yaml seatunnel/config/hazelcast-worker.yaml
+
+# Add local/oss file connectors built from source.
+COPY --from=builder /workspace/seatunnel-connectors-v2/connector-file/connector-file-local/target/connector-file-local-*.jar /opt/seatunnel/connectors/
+COPY --from=builder /workspace/seatunnel-connectors-v2/connector-file/connector-file-oss/target/connector-file-oss-*.jar /opt/seatunnel/connectors/
+
+# Add OSS dependencies required by OssFile connector.
+# Copy from builder local maven cache to avoid runtime network download failures.
+COPY --from=builder /root/.m2/repository/org/apache/hadoop/hadoop-aliyun/3.1.4/hadoop-aliyun-3.1.4.jar /opt/seatunnel/lib/
+COPY --from=builder /root/.m2/repository/com/aliyun/oss/aliyun-sdk-oss/3.4.1/aliyun-sdk-oss-3.4.1.jar /opt/seatunnel/lib/
+COPY --from=builder /root/.m2/repository/org/jdom/jdom/1.1/jdom-1.1.jar /opt/seatunnel/lib/
+
+COPY config/ /opt/seatunnel/config/
+
+WORKDIR /opt/seatunnel
+
+WORKDIR /opt/seatunnel
+
+EXPOSE 5801
+
+CMD ["/bin/bash", "./bin/seatunnel-cluster.sh"]

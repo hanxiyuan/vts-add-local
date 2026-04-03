@@ -1,0 +1,7 @@
+FROM seatunnel:local-oss
+
+# Copy project config into image so runtime does not rely on host bind-mount:
+#   "${PWD}\\config:/opt/seatunnel/config"
+COPY config/ /opt/seatunnel/config/
+
+WORKDIR /opt/seatunnel
