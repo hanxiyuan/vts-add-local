@@ -106,6 +106,45 @@ Local Mode:
 - Set up proper authentication and security measures
 - Monitor system resources during migration
 
+## Fork Enhancements: Local/OSS Export & Restore
+
+This fork adds an end-to-end offline export/restore workflow for Milvus, including data files, schema config, and index metadata.
+
+### What was added
+
+- Local parquet vector compatibility: exported local parquet vector fields are now aligned with import-supported `FLOAT_VECTOR` format instead of opaque binary bytes.
+- New Docker image build file: [`Dockerfile.local-oss`](Dockerfile.local-oss) includes both local and OSS file connector dependencies (plus required OSS runtime jars).
+- Export now includes restore metadata:
+  - Per-collection restore configs/scripts under `restore/` (`restore_<collection>.conf` and `restore_<collection>.sh`).
+  - Milvus index metadata in `_indexes.json`.
+- One-click shell scripts:
+  - `config/dump.sh`: one-click export.
+  - `config/restore.sh`: one-click restore + index rebuild + collection load.
+
+### Export directory layout
+
+```text
+<OUT_ROOT>/<collection>/
+  restore/
+    restore_<collection>.conf
+    restore_<collection>.sh
+  _indexes.json
+  <part-*.parquet>
+```
+
+### Quick usage
+
+```bash
+# 1) Optional: edit runtime settings
+vi /opt/seatunnel/config/.env
+
+# 2) Export parquet + restore metadata
+bash /opt/seatunnel/config/dump.sh
+
+# 3) Restore all collections from OUT_ROOT
+bash /opt/seatunnel/config/restore.sh
+```
+
 ## Supported Connectors
 
 VTS supports various connectors for data migration:
